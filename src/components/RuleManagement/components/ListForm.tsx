@@ -1,20 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../../Button/Button";
 import { Dropdown } from "../../Dropdown/Dropdown";
 import { Input } from "../../Input/Input";
 import type { ManagedList, ListType } from "../types/list.types";
 
 interface ListFormProps {
+  action: "create" | "update";
+  list?: ManagedList;
   onSubmit: (list: Omit<ManagedList, "id">) => void;
   onCancel: () => void;
 }
 
-export function ListForm({ onSubmit, onCancel }: ListFormProps) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [type, setType] = useState<ListType>("Allow List");
-  const [items, setItems] = useState([""]);
+export function ListForm({ action, list, onSubmit, onCancel }: ListFormProps) {
+  const [name, setName] = useState(list?.name ?? "");
+  const [description, setDescription] = useState(list?.description ?? "");
+  const [type, setType] = useState<ListType>(list?.type ?? "Allow List");
+  const [items, setItems] = useState(list?.items.length ? list.items : [""]);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setName(list?.name ?? "");
+    setDescription(list?.description ?? "");
+    setType(list?.type ?? "Allow List");
+    setItems(list?.items.length ? list.items : [""]);
+  }, [list]);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,7 +52,7 @@ export function ListForm({ onSubmit, onCancel }: ListFormProps) {
         <Button type="button" variant="danger" disabled={items.length === 1} onClick={() => setItems((current) => current.filter((_, i) => i !== index))}>Remove Item</Button>
       </div>)}
       {error && <p className="pui-error" role="alert">{error}</p>}
-      <div className="pui-actions"><Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit">Save List</Button></div>
+      <div className="pui-actions"><Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit">{action === "create" ? "Save List" : "Update List"}</Button></div>
     </form>
   );
 }

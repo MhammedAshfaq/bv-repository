@@ -1,23 +1,23 @@
 import { useMemo, useState } from "react";
 import { Button } from "../Button/Button";
-import { Dropdown, type DropdownOption } from "../Dropdown/Dropdown";
 import { useRuleManagement } from "./hooks/useRuleManagement";
 import { RuleForm } from "./components/RuleForm";
 import { ListForm } from "./components/ListForm";
 import { RulesTable } from "./components/RulesTable";
 import { ListsTable } from "./components/ListsTable";
 import { DeleteConfirmation } from "./components/DeleteConfirmation";
+import type { ManagedList } from "./types/list.types";
 import type { ManagedRule } from "./types/rule.types";
 
-type Action = "" | "create" | "list" | "update" | "delete";
-
-const actions: DropdownOption[] = [
-  { label: "Choose an action…", value: "" },
-  { label: "Create Rule", value: "create" },
-  { label: "Add List", value: "list" },
-  { label: "Update Rule", value: "update" },
-  { label: "Delete Rule", value: "delete" },
-];
+type View = "rules" | "lists";
+type FormMode =
+  | { kind: "create-rule" }
+  | { kind: "edit-rule"; item: ManagedRule }
+  | { kind: "create-list" }
+  | { kind: "edit-list"; item: ManagedList };
+type PendingDelete =
+  | { kind: "rule"; item: ManagedRule }
+  | { kind: "list"; item: ManagedList };
 
 export interface RuleManagementProps {
   title?: string;
@@ -25,67 +25,99 @@ export interface RuleManagementProps {
 
 export function RuleManagement({ title = "Rule Management" }: RuleManagementProps) {
   const { rules, setRules, lists, setLists, metrics } = useRuleManagement();
-  const [action, setAction] = useState<Action>("");
-  const [selectedRuleId, setSelectedRuleId] = useState("");
+  const [view, setView] = useState<View>("rules");
+  const [formMode, setFormMode] = useState<FormMode>();
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete>();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [message, setMessage] = useState("");
-  const [pendingDeleteRule, setPendingDeleteRule] = useState<ManagedRule>();
 
-  const selectedRule = rules.find((rule) => rule.id === selectedRuleId);
   const filteredRules = useMemo(() => rules.filter((rule) => {
     const matchesText = `${rule.id} ${rule.name} ${rule.description} ${rule.type}`.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "All statuses" || rule.status === statusFilter;
     return matchesText && matchesStatus;
   }), [rules, search, statusFilter]);
+  const filteredLists = useMemo(() => lists.filter((list) =>
+    `${list.id} ${list.name} ${list.description} ${list.type} ${list.items.join(" ")}`.toLowerCase().includes(search.toLowerCase()),
+  ), [lists, search]);
 
-  function closeAction() {
-    setAction("");
-    setSelectedRuleId("");
+  function showView(nextView: View) {
+    setView(nextView);
+    setFormMode(undefined);
+    setSearch("");
+    setMessage("");
+  }
+
+  function openCreateRule() {
+    setView("rules");
+    setFormMode({ kind: "create-rule" });
+    setMessage("");
+  }
+
+  function openCreateList() {
+    setView("lists");
+    setFormMode({ kind: "create-list" });
+    setMessage("");
   }
 
   function nextId(prefix: "RULE" | "LIST", ids: string[]) {
-    let id = `${prefix}-${String(Date.now()).slice(-8)}`;
+    const timestamp = String(Date.now()).slice(-8);
+    let id = `${prefix}-${timestamp}`;
     let suffix = 1;
-    while (ids.includes(id)) {
-      id = `${prefix}-${String(Date.now()).slice(-8)}-${suffix++}`;
-    }
+    while (ids.includes(id)) id = `${prefix}-${timestamp}-${suffix++}`;
     return id;
   }
 
-  function createRule(rule: Omit<ManagedRule, "id">) {
-    const id = nextId("RULE", rules.map((item) => item.id));
-    setRules((current) => [{ ...rule, id }, ...current]);
-    setMessage(`Rule "${rule.name}" was created successfully (${id}).`);
-    closeAction();
+  function saveRule(rule: Omit<ManagedRule, "id">) {
+    if (formMode?.kind === "edit-rule") {
+      const { id } = formMode.item;
+      setRules((current) => current.map((item) => item.id === id ? { ...rule, id } : item));
+      setMessage(`Rule "${rule.name}" was updated successfully.`);
+    } else {
+      const id = nextId("RULE", rules.map((item) => item.id));
+      setRules((current) => [{ ...rule, id }, ...current]);
+      setMessage(`Rule "${rule.name}" was created successfully (${id}).`);
+    }
+    setFormMode(undefined);
   }
 
-  function updateRule(rule: Omit<ManagedRule, "id">) {
-    if (!selectedRule) return;
-    setRules((current) => current.map((currentRule) => currentRule.id === selectedRule.id ? { ...rule, id: selectedRule.id } : currentRule));
-    setMessage(`Rule "${rule.name}" was updated successfully.`);
-    closeAction();
+  function saveList(list: Omit<ManagedList, "id">) {
+    if (formMode?.kind === "edit-list") {
+      const { id } = formMode.item;
+      setLists((current) => current.map((item) => item.id === id ? { ...list, id } : item));
+      setMessage(`List "${list.name}" was updated successfully.`);
+    } else {
+      const id = nextId("LIST", lists.map((item) => item.id));
+      setLists((current) => [{ ...list, id }, ...current]);
+      setMessage(`List "${list.name}" was created successfully (${id}).`);
+    }
+    setFormMode(undefined);
   }
 
-  function deleteRule() {
-    if (!pendingDeleteRule) return;
-    setRules((current) => current.filter((rule) => rule.id !== pendingDeleteRule.id));
-    setMessage(`Rule "${pendingDeleteRule.name}" was deleted.`);
-    setPendingDeleteRule(undefined);
-    closeAction();
+  function confirmDelete() {
+    if (!pendingDelete) return;
+    if (pendingDelete.kind === "rule") {
+      setRules((current) => current.filter((rule) => rule.id !== pendingDelete.item.id));
+      setMessage(`Rule "${pendingDelete.item.name}" was deleted.`);
+    } else {
+      setLists((current) => current.filter((list) => list.id !== pendingDelete.item.id));
+      setMessage(`List "${pendingDelete.item.name}" was deleted.`);
+    }
+    setPendingDelete(undefined);
   }
+
+  const formTitle = formMode?.kind === "create-rule" ? "Create Rule"
+    : formMode?.kind === "edit-rule" ? "Edit Rule"
+      : formMode?.kind === "create-list" ? "Add List"
+        : formMode?.kind === "edit-list" ? "Edit List" : "";
 
   return (
     <main className="pui-rule-management">
       <header className="pui-dashboard-header">
-        <div><p className="pui-eyebrow">Platform controls</p><h1>{title}</h1>
-          <p className="pui-subtitle">Create, review, and manage reusable decision rules and lists.</p></div>
-        <div className="pui-action-picker">
-          <Dropdown label="Actions" value={action} options={actions} onChange={(event) => {
-            setAction(event.target.value as Action);
-            setSelectedRuleId("");
-            setMessage("");
-          }} />
+        <div>
+          <p className="pui-eyebrow">Platform controls</p>
+          <h1>{title}</h1>
+          <p className="pui-subtitle">Create, review, and manage reusable decision rules and lists.</p>
         </div>
       </header>
 
@@ -98,37 +130,63 @@ export function RuleManagement({ title = "Rule Management" }: RuleManagementProp
         <article className="pui-metric"><span>Total Lists</span><strong>{metrics.totalLists}</strong></article>
       </section>
 
-      {action === "create" && <section className="pui-panel pui-action-panel"><h2>Create Rule</h2><RuleForm action="create" onSubmit={createRule} onCancel={closeAction} /></section>}
-      {action === "list" && <section className="pui-panel pui-action-panel"><h2>Add List</h2><ListForm onSubmit={(list) => {
-        const id = nextId("LIST", lists.map((item) => item.id));
-        setLists((current) => [{ ...list, id }, ...current]);
-        setMessage(`List "${list.name}" was created successfully (${id}).`);
-        closeAction();
-      }} onCancel={closeAction} /></section>}
-      {action === "update" && <section className="pui-panel pui-action-panel"><h2>Update Rule</h2>
-        {rules.length === 0 ? <p className="pui-empty">There are no rules to update.</p> : <>
-          <Dropdown label="Select Rule" value={selectedRuleId} options={[{ label: "Choose a rule…", value: "" }, ...rules.map((rule) => ({ label: `${rule.id} — ${rule.name}`, value: rule.id }))]} onChange={(event) => setSelectedRuleId(event.target.value)} />
-          {selectedRule && <RuleForm key={selectedRule.id} action="update" rule={selectedRule} onSubmit={updateRule} onCancel={closeAction} />}
-        </>}
-      </section>}
-      {action === "delete" && <section className="pui-panel pui-action-panel"><h2>Delete Rule</h2>
-        {rules.length === 0 ? <p className="pui-empty">There are no rules to delete.</p> : <>
-          <Dropdown label="Select Rule" value={selectedRuleId} options={[{ label: "Choose a rule…", value: "" }, ...rules.map((rule) => ({ label: `${rule.id} — ${rule.name}`, value: rule.id }))]} onChange={(event) => setSelectedRuleId(event.target.value)} />
-          {selectedRule && <div className="pui-delete-preview"><strong>{selectedRule.name}</strong><span>{selectedRule.id} · {selectedRule.type} · {selectedRule.status}</span><p>{selectedRule.description}</p><Button variant="danger" onClick={() => setPendingDeleteRule(selectedRule)}>Delete Rule</Button></div>}
-        </>}
-      </section>}
+      <div className="pui-workspace">
+        <aside className="pui-sidebar" aria-label="Rule management navigation">
+          <p className="pui-sidebar-label">Manage</p>
+          <button className={`pui-nav-item ${view === "rules" ? "is-active" : ""}`} onClick={() => showView("rules")}>Rule Listing <span>{rules.length}</span></button>
+          <button className={`pui-nav-item ${view === "lists" ? "is-active" : ""}`} onClick={() => showView("lists")}>List Listing <span>{lists.length}</span></button>
+          <div className="pui-sidebar-divider" />
+          <p className="pui-sidebar-label">Create new</p>
+          <button className="pui-nav-item pui-nav-create" onClick={openCreateRule}>＋ Create Rule</button>
+          <button className="pui-nav-item pui-nav-create" onClick={openCreateList}>＋ Add List</button>
+        </aside>
 
-      <section className="pui-panel">
-        <div className="pui-table-heading"><div><h2>Rules</h2><p>{filteredRules.length} of {rules.length} rules</p></div>
-          <div className="pui-filters"><input className="pui-control" aria-label="Search rules" placeholder="Search rules…" value={search} onChange={(event) => setSearch(event.target.value)} />
-            <select className="pui-control" aria-label="Filter rules by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option>All statuses</option><option>Active</option><option>Inactive</option>
-            </select></div>
+        <div className="pui-content">
+          {formMode && <section className="pui-panel pui-action-panel">
+            <h2>{formTitle}</h2>
+            {(formMode.kind === "create-rule" || formMode.kind === "edit-rule") &&
+              <RuleForm key={formMode.kind === "edit-rule" ? formMode.item.id : "new-rule"}
+                action={formMode.kind === "create-rule" ? "create" : "update"}
+                rule={formMode.kind === "edit-rule" ? formMode.item : undefined}
+                onSubmit={saveRule} onCancel={() => setFormMode(undefined)} />}
+            {(formMode.kind === "create-list" || formMode.kind === "edit-list") &&
+              <ListForm key={formMode.kind === "edit-list" ? formMode.item.id : "new-list"}
+                action={formMode.kind === "create-list" ? "create" : "update"}
+                list={formMode.kind === "edit-list" ? formMode.item : undefined}
+                onSubmit={saveList} onCancel={() => setFormMode(undefined)} />}
+          </section>}
+
+          {view === "rules" ? <section className="pui-panel">
+            <div className="pui-table-heading">
+              <div><h2>Rule Listing</h2><p>{filteredRules.length} of {rules.length} rules</p></div>
+              <div className="pui-filters">
+                <input className="pui-control" aria-label="Search rules" placeholder="Search rules…" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <select className="pui-control" aria-label="Filter rules by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  <option>All statuses</option><option>Active</option><option>Inactive</option>
+                </select>
+                <Button onClick={openCreateRule}>Create Rule</Button>
+              </div>
+            </div>
+            <RulesTable rules={filteredRules}
+              onEdit={(rule) => { setFormMode({ kind: "edit-rule", item: rule }); setMessage(""); }}
+              onDelete={(rule) => setPendingDelete({ kind: "rule", item: rule })} />
+          </section> : <section className="pui-panel">
+            <div className="pui-table-heading">
+              <div><h2>List Listing</h2><p>{filteredLists.length} of {lists.length} lists</p></div>
+              <div className="pui-filters">
+                <input className="pui-control" aria-label="Search lists" placeholder="Search lists…" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <Button onClick={openCreateList}>Add List</Button>
+              </div>
+            </div>
+            <ListsTable lists={filteredLists}
+              onEdit={(list) => { setFormMode({ kind: "edit-list", item: list }); setMessage(""); }}
+              onDelete={(list) => setPendingDelete({ kind: "list", item: list })} />
+          </section>}
         </div>
-        <RulesTable rules={filteredRules} />
-      </section>
-      <section className="pui-panel"><div className="pui-table-heading"><div><h2>Lists</h2><p>{lists.length} lists</p></div></div><ListsTable lists={lists} /></section>
-      <DeleteConfirmation rule={pendingDeleteRule} onConfirm={deleteRule} onCancel={() => setPendingDeleteRule(undefined)} />
+      </div>
+
+      <DeleteConfirmation item={pendingDelete?.item} itemType={pendingDelete?.kind ?? "rule"}
+        onConfirm={confirmDelete} onCancel={() => setPendingDelete(undefined)} />
     </main>
   );
 }

@@ -5,7 +5,7 @@ Reusable React and TypeScript components maintained by the Platform Team.
 ## Install from GitHub
 
 ```sh
-npm install git+https://github.com/MhammedAshfaq/bv-repository.git#v1.0.0
+npm install git+https://github.com/MhammedAshfaq/bv-repository.git#v1.1.0
 ```
 
 The package's `prepare` script builds the distribution when npm installs from Git. The consuming app must have React and React DOM installed because they are peer dependencies.
